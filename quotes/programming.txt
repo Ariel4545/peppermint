@@ -1,0 +1,25 @@
+First, solve the problem. Then, write the code.
+Talk is cheap. Show me the code.
+Programs must be written for people to read, and only coincidentally for machines to execute.
+Any fool can write code that a computer can understand. Good programmers write code that humans can understand.
+Simplicity is the soul of efficiency.
+Make it work, make it right, make it fast.
+One of my most productive days was throwing away 1000 lines of code.
+The best error message is the one that never shows up.
+Clean code always looks like it was written by someone who cares.
+Software is a great combination between artistry and engineering.
+It's not a bug - it's an undocumented feature.
+Before software can be reusable it first has to be usable.
+Programming is the art of telling another human being what you want the computer to do.
+The only way to go fast, is to go well.
+Simple things should be simple, complex things should be possible.
+Controlling complexity is the essence of computer programming.
+Computers are good at following instructions, but not at reading your mind.
+The most important single aspect of software development is clarity.
+Truth can only be found in one place: the code.
+Refactoring is the art of improving the design of existing code without changing its behavior.
+Strive for simplicity, not cleverness.
+Beautiful code is its own reward.
+Good design is actually a lot harder to notice than poor design, in part because good designs fit our needs so well.
+Code is like humor. When you have to explain it, it’s bad.
+Keep it simple, stupid.
