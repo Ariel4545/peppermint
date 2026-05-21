@@ -26,17 +26,23 @@ class WallpaperOverlay(Gtk.Window):
 
         self.connect("realize", self.on_realize)
         self.connect("draw", self.on_draw)
+        self.connect("destroy", self.on_destroy)
         self.update_geometry()
+
+        self.config_manager.register_listener(self.on_config_changed)
 
         self.anim_state = "waiting"
         self.current_quote = ""
         self.is_paused = False
         self.typed_chars = 0
+        self.cursor_visible = True
         self.alpha_factor = 1.0
 
         self.timer_id = None
+        self.cursor_timer_id = None
         self.state_timer_id = None
 
+        self.start_cursor_blink()
         GLib.timeout_add(500, self.trigger_next_quote)
 
     def set_paused(self, paused):
@@ -46,11 +52,38 @@ class WallpaperOverlay(Gtk.Window):
         else:
             self.trigger_next_quote()
 
+    def on_config_changed(self, key, value):
+        GLib.idle_add(self._handle_config_change_idle, key, value)
+
+    def _handle_config_change_idle(self, key, value):
+        if key in ["monitor_index"]:
+            self.update_geometry()
+        elif key in ["active_quote_file"]:
+            self.quotes_manager.set_active_file(value)
+            self.trigger_next_quote()
+        elif key in ["shuffle"]:
+            self.quotes_manager.set_shuffle(value)
+        elif key in ["font_desc", "text_color", "alignment", "show_shadow", "shadow_color", 
+                     "show_card", "card_color", "card_border_color", "card_border_width", 
+                     "card_corner_radius", "card_padding", "max_width_pct", "position_preset",
+                     "custom_x_pct", "custom_y_pct"]:
+            self.queue_draw()
+        return False
+
     def on_realize(self, widget):
         window = self.get_window()
         if window:
             region = cairo.Region()
             window.input_shape_combine_region(region, 0, 0)
+
+    def start_cursor_blink(self):
+        self.cursor_timer_id = GLib.timeout_add(500, self.tick_cursor)
+
+    def tick_cursor(self):
+        self.cursor_visible = not self.cursor_visible
+        if self.anim_state == "typing" and self.config_manager.get("animation_style") == "typewriter":
+            self.queue_draw()
+        return True
 
     def update_geometry(self):
         display = Gdk.Display.get_default()
@@ -74,6 +107,12 @@ class WallpaperOverlay(Gtk.Window):
         if self.state_timer_id:
             GLib.source_remove(self.state_timer_id)
             self.state_timer_id = None
+
+    def on_destroy(self, widget):
+        self.clear_all_timers()
+        if self.cursor_timer_id:
+            GLib.source_remove(self.cursor_timer_id)
+            self.cursor_timer_id = None
 
     def trigger_next_quote(self):
         if self.is_paused:
@@ -196,7 +235,8 @@ class WallpaperOverlay(Gtk.Window):
 
         display_text = self.current_quote[:self.typed_chars]
         if self.anim_state == "typing" and c.get("animation_style") == "typewriter":
-            display_text += "|"
+            if self.cursor_visible:
+                display_text += "|"
 
         layout = self.create_pango_layout(display_text)
         layout.set_font_description(Pango.FontDescription(font_desc_str))

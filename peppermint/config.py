@@ -41,6 +41,7 @@ class ConfigManager:
     def __init__(self, config_path=CONFIG_PATH):
         self.config_path = config_path
         self.config = DEFAULT_CONFIG.copy()
+        self.listeners = []
         self.load()
 
     def load(self):
@@ -71,3 +72,16 @@ class ConfigManager:
         if key in self.config and self.config[key] != value:
             self.config[key] = value
             self.save()
+            self.notify_listeners(key, value)
+
+    def register_listener(self, callback):
+        """Registers a listener to be notified on configuration changes."""
+        self.listeners.append(callback)
+
+    def notify_listeners(self, key, value):
+        """Notifies all registered listeners of a change."""
+        for listener in self.listeners:
+            try:
+                listener(key, value)
+            except Exception as e:
+                print(f"Error in config listener: {e}")
