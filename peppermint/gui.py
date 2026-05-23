@@ -41,6 +41,12 @@ class SettingsDashboard(Gtk.Window):
         self.build_animations_tab(tab3)
         notebook.append_page(tab3, Gtk.Label(label="Animations"))
 
+        # Tab 4: Database Editor
+        tab4 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        tab4.set_border_width(15)
+        self.build_editor_tab(tab4)
+        notebook.append_page(tab4, Gtk.Label(label="Quote Editor"))
+
         # Fill values into UI
         self.load_settings_into_ui()
         self.connect("delete-event", self.on_close)
@@ -102,6 +108,7 @@ class SettingsDashboard(Gtk.Window):
         if self.app and self.app.overlay:
             if key == "active_quote_file":
                 self.quotes_manager.set_active_file(value)
+                self.load_active_quotes_file_into_editor()
                 self.app.overlay.trigger_next_quote()
             elif key == "shuffle":
                 self.quotes_manager.set_shuffle(value)
@@ -281,8 +288,13 @@ class SettingsDashboard(Gtk.Window):
         btn_box = Gtk.Box(spacing=10)
         box.pack_start(btn_box, False, False, 0)
 
+        # Previous Quote
+        btn_prev = Gtk.Button(label="⏮ Previous Sentence")
+        btn_prev.connect("clicked", self.on_prev_clicked)
+        btn_box.pack_start(btn_prev, True, True, 0)
+
         # Next Quote
-        btn_next = Gtk.Button(label="⏭ Skip Sentence")
+        btn_next = Gtk.Button(label="Next Sentence ⏭")
         btn_next.connect("clicked", self.on_skip_clicked)
         btn_box.pack_start(btn_next, True, True, 0)
 
@@ -338,6 +350,9 @@ class SettingsDashboard(Gtk.Window):
         self.duration_scale.set_value(c.get("delay_completed_sec"))
         self.fade_scale.set_value(c.get("fade_out_sec"))
 
+        # Quotes Text Editor
+        self.load_active_quotes_file_into_editor()
+
     def on_preset_changed(self, combo):
         preset = combo.get_active_id()
         base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "quotes")
@@ -386,9 +401,91 @@ class SettingsDashboard(Gtk.Window):
         if self.app and self.app.overlay:
             self.app.overlay.trigger_next_quote()
 
+    def on_prev_clicked(self, widget):
+        if self.app and self.app.overlay:
+            self.app.overlay.clear_all_timers()
+            self.app.overlay.current_quote = self.quotes_manager.get_previous()
+            self.app.overlay.typed_chars = len(self.app.overlay.current_quote)
+            self.app.overlay.alpha_factor = 1.0
+            self.app.overlay.anim_state = "completed"
+            self.app.overlay.queue_draw()
+            delay = int(self.config_manager.get("delay_completed_sec") * 1000)
+            self.app.overlay.state_timer_id = GLib.timeout_add(delay, self.app.overlay.trigger_fade_out)
+
     def on_close(self, widget, event):
         self.hide()
         return True # Inhibit default window destruction
+
+    def build_editor_tab(self, box):
+        lbl = Gtk.Label(xalign=0)
+        lbl.set_markup("<b>Built-in Quotes Library Editor</b>")
+        box.pack_start(lbl, False, False, 0)
+        
+        desc = Gtk.Label(label="Add or modify sentences in your currently selected database file below. Keep one sentence per line.", xalign=0)
+        desc.set_line_wrap(True)
+        box.pack_start(desc, False, False, 0)
+
+        # Scrolled Text Box
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_hexpand(True)
+        scroll.set_vexpand(True)
+        box.pack_start(scroll, True, True, 0)
+        
+        self.quotes_text_view = Gtk.TextView()
+        self.quotes_text_view.set_monospace(True)
+        self.quotes_text_view.set_wrap_mode(Gtk.WrapMode.WORD)
+        scroll.add(self.quotes_text_view)
+
+        # Buttons
+        btn_box = Gtk.Box(spacing=10)
+        box.pack_start(btn_box, False, False, 0)
+
+        reload_btn = Gtk.Button(label="Undo / Reload")
+        reload_btn.connect("clicked", lambda w: self.load_active_quotes_file_into_editor())
+        btn_box.pack_start(reload_btn, False, False, 0)
+
+        self.save_btn = Gtk.Button(label="Save Quote File Changes")
+        self.save_btn.get_style_context().add_class("primary-btn")
+        self.save_btn.connect("clicked", self.on_save_quotes_clicked)
+        btn_box.pack_start(self.save_btn, True, True, 0)
+
+        self.editor_status_lbl = Gtk.Label(label="", xalign=0)
+        box.pack_start(self.editor_status_lbl, False, False, 0)
+
+    def load_active_quotes_file_into_editor(self):
+        """Reads active quote text file and prints it inside the editor pane."""
+        file_path = self.config_manager.get("active_quote_file")
+        buffer = self.quotes_text_view.get_buffer()
+        if not file_path or not os.path.exists(file_path):
+            buffer.set_text("# Active quotes file not found or empty.")
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                buffer.set_text(content)
+        except Exception as e:
+            buffer.set_text(f"Error loading quotes file:\n{str(e)}")
+
+    def on_save_quotes_clicked(self, widget):
+        file_path = self.config_manager.get("active_quote_file")
+        buffer = self.quotes_text_view.get_buffer()
+        start, end = buffer.get_bounds()
+        text = buffer.get_text(start, end, True)
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(text)
+            self.editor_status_lbl.set_markup("<span color='#4caf50'>Quotes database saved and hot-reloaded!</span>")
+            
+            # Hot reload the quotes queue
+            self.quotes_manager.reload()
+            if self.app and self.app.overlay:
+                self.app.overlay.trigger_next_quote()
+        except Exception as e:
+            self.editor_status_lbl.set_markup(f"<span color='#f44336'>Error saving file: {str(e)}</span>")
+            
+        GLib.timeout_add(3000, lambda: self.editor_status_lbl.set_text("") or False)
 
     # Helpers
     def list_to_rgba(self, lst):
