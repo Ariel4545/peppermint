@@ -4,7 +4,8 @@ from gi.repository import Gtk, Gdk, GLib
 import os
 
 from peppermint.utils import (
-    is_autostart_enabled, enable_autostart, disable_autostart, get_monitor_geometries
+    is_autostart_enabled, enable_autostart, disable_autostart, get_monitor_geometries,
+    get_cinnamon_wallpaper, set_cinnamon_wallpaper
 )
 
 class SettingsDashboard(Gtk.Window):
@@ -189,6 +190,38 @@ class SettingsDashboard(Gtk.Window):
         self.width_scale.connect("value-changed", lambda w: self.update_config("max_width_pct", w.get_value()))
         grid.attach(self.width_scale, 1, 7, 1, 1)
 
+        # Cinnamon Background sync control
+        box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 5)
+        
+        bg_lbl = Gtk.Label(xalign=0)
+        bg_lbl.set_markup("<b>Linux Mint Wallpaper Synchronization</b>")
+        box.pack_start(bg_lbl, False, False, 0)
+        
+        bg_desc = Gtk.Label(label="Choose a picture to set Cinnamon desktop background directly.", xalign=0)
+        bg_desc.set_line_wrap(True)
+        box.pack_start(bg_desc, False, False, 0)
+        
+        bg_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.pack_start(bg_box, False, False, 0)
+        
+        self.bg_file_chooser = Gtk.FileChooserButton(title="Select Background Image", action=Gtk.FileChooserAction.OPEN)
+        img_filter = Gtk.FileFilter()
+        img_filter.set_name("Images")
+        img_filter.add_mime_type("image/png")
+        img_filter.add_mime_type("image/jpeg")
+        img_filter.add_mime_type("image/webp")
+        self.bg_file_chooser.add_filter(img_filter)
+        bg_box.pack_start(self.bg_file_chooser, True, True, 0)
+        
+        bg_btn = Gtk.Button(label="Apply Wallpaper")
+        bg_btn.get_style_context().add_class("primary-btn")
+        bg_btn.connect("clicked", self.on_apply_wallpaper_clicked)
+        bg_box.pack_start(bg_btn, False, False, 0)
+
+        # Status info
+        self.bg_status_lbl = Gtk.Label(label="", xalign=0)
+        box.pack_start(self.bg_status_lbl, False, False, 0)
+
     def build_style_tab(self, box):
         grid = Gtk.Grid(column_spacing=12, row_spacing=12)
         box.pack_start(grid, True, True, 0)
@@ -350,6 +383,11 @@ class SettingsDashboard(Gtk.Window):
         self.duration_scale.set_value(c.get("delay_completed_sec"))
         self.fade_scale.set_value(c.get("fade_out_sec"))
 
+        # Cinnamon Wallpaper background
+        curr_bg = get_cinnamon_wallpaper()
+        if curr_bg and os.path.exists(curr_bg):
+            self.bg_file_chooser.set_filename(curr_bg)
+
         # Quotes Text Editor
         self.load_active_quotes_file_into_editor()
 
@@ -411,6 +449,19 @@ class SettingsDashboard(Gtk.Window):
             self.app.overlay.queue_draw()
             delay = int(self.config_manager.get("delay_completed_sec") * 1000)
             self.app.overlay.state_timer_id = GLib.timeout_add(delay, self.app.overlay.trigger_fade_out)
+
+    def on_apply_wallpaper_clicked(self, widget):
+        filename = self.bg_file_chooser.get_filename()
+        if filename:
+            success = set_cinnamon_wallpaper(filename)
+            if success:
+                self.bg_status_lbl.set_markup("<span color='#4caf50'>Wallpaper applied successfully to Cinnamon!</span>")
+            else:
+                self.bg_status_lbl.set_markup("<span color='#f44336'>Failed to set desktop wallpaper.</span>")
+        else:
+            self.bg_status_lbl.set_markup("<span color='#ff9800'>Please select a wallpaper file first!</span>")
+            
+        GLib.timeout_add(3000, lambda: self.bg_status_lbl.set_text("") or False)
 
     def on_close(self, widget, event):
         self.hide()

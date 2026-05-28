@@ -1,4 +1,5 @@
 import os
+import subprocess
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gdk
@@ -47,6 +48,40 @@ def disable_autostart():
             print(f"Error deleting autostart: {e}")
             return False
     return True
+
+def get_cinnamon_wallpaper():
+    """Gets the path of the current Cinnamon background wallpaper."""
+    try:
+        res = subprocess.check_output(
+            ["gsettings", "get", "org.cinnamon.desktop.background", "picture-uri"],
+            stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+        
+        # Remove surrounding quotes and file:// prefix
+        res = res.strip("'\"")
+        if res.startswith("file://"):
+            res = res[7:]
+        return res
+    except Exception:
+        return ""
+
+def set_cinnamon_wallpaper(image_path):
+    """Sets the Cinnamon background wallpaper to a file path."""
+    if not os.path.exists(image_path):
+        return False
+    try:
+        # Cinnamon expects a file:// URI
+        uri = f"file://{os.path.abspath(image_path)}"
+        subprocess.run(
+            ["gsettings", "set", "org.cinnamon.desktop.background", "picture-uri", uri],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return True
+    except Exception as e:
+        print(f"Error setting Cinnamon background: {e}")
+        return False
 
 def get_monitor_geometries():
     monitors_info = []
