@@ -1,7 +1,11 @@
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
+gi.require_version('Pango', '1.0')
+gi.require_version('PangoCairo', '1.0')
+from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
+import cairo
 import os
+import math
 
 from peppermint.utils import (
     is_autostart_enabled, enable_autostart, disable_autostart, get_monitor_geometries,
@@ -20,9 +24,38 @@ class SettingsDashboard(Gtk.Window):
         self.set_position(Gtk.WindowPosition.CENTER)
         self.apply_custom_css()
 
+        # Master grid container
+        master_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.add(master_box)
+
+        # Live Preview Frame
+        preview_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        preview_container.set_margin_top(15)
+        preview_container.set_margin_bottom(12)
+        preview_container.set_margin_left(15)
+        preview_container.set_margin_right(15)
+        
+        prev_lbl = Gtk.Label()
+        prev_lbl.set_markup("<span weight='bold' size='large'>Real-Time Canvas Preview</span>")
+        prev_lbl.set_xalign(0.0)
+        preview_container.pack_start(prev_lbl, False, False, 0)
+
+        preview_frame = Gtk.Frame()
+        preview_frame.set_size_request(-1, 160)
+        
+        self.preview_area = Gtk.DrawingArea()
+        self.preview_area.connect("draw", self.on_preview_draw)
+        preview_frame.add(self.preview_area)
+        
+        preview_container.pack_start(preview_frame, True, True, 0)
+        master_box.pack_start(preview_container, False, False, 0)
+
+        # Separator line
+        master_box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+
         # Notebook layout
         notebook = Gtk.Notebook()
-        self.add(notebook)
+        master_box.pack_start(notebook, True, True, 0)
 
         # Tab 1: General & Position
         tab1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -106,6 +139,8 @@ class SettingsDashboard(Gtk.Window):
 
     def update_config(self, key, value):
         self.config_manager.set(key, value)
+        if hasattr(self, 'preview_area'):
+            self.preview_area.queue_draw()
         if self.app and self.app.overlay:
             if key == "active_quote_file":
                 self.quotes_manager.set_active_file(value)
@@ -543,3 +578,153 @@ class SettingsDashboard(Gtk.Window):
         rgba = Gdk.RGBA()
         rgba.red, rgba.green, rgba.blue, rgba.alpha = lst[0], lst[1], lst[2], lst[3]
         return rgba
+
+    # --- Live Preview Canvas Drawing ---
+
+    def draw_rounded_rectangle(self, cr, x, y, width, height, radius):
+        cr.new_sub_path()
+        cr.arc(x + width - radius, y + radius, radius, -math.pi/2, 0)
+        cr.arc(x + width - radius, y + height - radius, radius, 0, math.pi/2)
+        cr.arc(x + radius, y + height - radius, radius, math.pi/2, math.pi)
+        cr.arc(x + radius, y + radius, radius, math.pi, 3*math.pi/2)
+        cr.close_path()
+
+    def on_preview_draw(self, widget, cr):
+        """Draws a scaled miniature representation of the system monitor, wallpaper and styled quote card."""
+        w = widget.get_allocated_width()
+        h = widget.get_allocated_height()
+
+        # 1. Clear background
+        cr.set_source_rgb(0.08, 0.08, 0.08)
+        cr.paint()
+
+        # 2. Draw mock desktop background inside coordinates
+        pat = cairo.Pattern.create_linear(0, 0, w, h)
+        pat.add_color_stop_rgb(0, 0.12, 0.16, 0.28)
+        pat.add_color_stop_rgb(1, 0.04, 0.06, 0.1)
+        cr.set_source(pat)
+        cr.rectangle(10, 10, w - 20, h - 20)
+        cr.fill()
+
+        # Draw a small inner monitor border
+        cr.set_source_rgb(0.3, 0.3, 0.3)
+        cr.set_line_width(2.0)
+        cr.rectangle(10, 10, w - 20, h - 20)
+        cr.stroke()
+
+        # 3. Render miniature typography overlay
+        c = self.config_manager
+        
+        scale = (w - 20) / 1920.0
+        
+        font_desc_str = c.get("font_desc")
+        text_color = c.get("text_color")
+        alignment_str = c.get("alignment")
+        show_shadow = c.get("show_shadow")
+        shadow_color = c.get("shadow_color")
+        shadow_ox = c.get("shadow_offset_x")
+        shadow_oy = c.get("shadow_offset_y")
+        
+        show_card = c.get("show_card")
+        card_color = c.get("card_color")
+        card_border_color = c.get("card_border_color")
+        card_border_width = c.get("card_border_width")
+        card_radius = c.get("card_corner_radius")
+        card_padding = c.get("card_padding")
+        max_width_pct = c.get("max_width_pct")
+        
+        preset = c.get("position_preset")
+        cx_pct = c.get("custom_x_pct")
+        cy_pct = c.get("custom_y_pct")
+
+        preview_text = "Live Typography Preview Canvas"
+        
+        layout = widget.create_pango_layout(preview_text)
+        
+        desc = Pango.FontDescription(font_desc_str)
+        orig_size = desc.get_size()
+        if not desc.get_size_is_absolute():
+            desc.set_size(max(int(orig_size * scale * 1.5), int(8 * Pango.SCALE)))
+        else:
+            desc.set_size(max(int(orig_size * scale * 1.5), 8))
+        layout.set_font_description(desc)
+
+        align = Pango.Alignment.CENTER
+        if alignment_str == "left":
+            align = Pango.Alignment.LEFT
+        elif alignment_str == "right":
+            align = Pango.Alignment.RIGHT
+        layout.set_alignment(align)
+
+        avail_w = w - 20
+        avail_h = h - 20
+        max_w = avail_w * (max_width_pct / 100.0)
+        layout.set_width(int(max_w * Pango.SCALE))
+        layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+
+        text_w, text_h = layout.get_pixel_size()
+
+        scaled_padding = card_padding * scale * 1.5 if show_card else 0
+        box_w = text_w + (scaled_padding * 2)
+        box_h = text_h + (scaled_padding * 2)
+
+        margin = 15.0
+        
+        if preset == "Top Left":
+            x = 10 + margin
+            y = 10 + margin
+        elif preset == "Top Center":
+            x = 10 + (avail_w - box_w) / 2.0
+            y = 10 + margin
+        elif preset == "Top Right":
+            x = 10 + avail_w - box_w - margin
+            y = 10 + margin
+        elif preset == "Middle Left":
+            x = 10 + margin
+            y = 10 + (avail_h - box_h) / 2.0
+        elif preset == "Center":
+            x = 10 + (avail_w - box_w) / 2.0
+            y = 10 + (avail_h - box_h) / 2.0
+        elif preset == "Middle Right":
+            x = 10 + avail_w - box_w - margin
+            y = 10 + (avail_h - box_h) / 2.0
+        elif preset == "Bottom Left":
+            x = 10 + margin
+            y = 10 + avail_h - box_h - margin
+        elif preset == "Bottom Center":
+            x = 10 + (avail_w - box_w) / 2.0
+            y = 10 + avail_h - box_h - margin
+        elif preset == "Bottom Right":
+            x = 10 + avail_w - box_w - margin
+            y = 10 + avail_h - box_h - margin
+        else:
+            x = 10 + (avail_w - box_w) * (cx_pct / 100.0)
+            y = 10 + (avail_h - box_h) * (cy_pct / 100.0)
+
+        x = max(10, min(10 + avail_w - box_w, x))
+        y = max(10, min(10 + avail_h - box_h, y))
+
+        if show_card:
+            cr.set_source_rgba(*card_color)
+            self.draw_rounded_rectangle(cr, x, y, box_w, box_h, card_radius * scale * 1.5)
+            cr.fill()
+
+            if card_border_width > 0:
+                cr.set_source_rgba(*card_border_color)
+                cr.set_line_width(max(0.5, card_border_width * scale))
+                self.draw_rounded_rectangle(cr, x, y, box_w, box_h, card_radius * scale * 1.5)
+                cr.stroke()
+
+        tx = x + scaled_padding
+        ty = y + scaled_padding
+
+        if show_shadow:
+            cr.set_source_rgba(*shadow_color)
+            cr.move_to(tx + shadow_ox * scale, ty + shadow_oy * scale)
+            PangoCairo.show_layout(cr, layout)
+
+        cr.set_source_rgba(*text_color)
+        cr.move_to(tx, ty)
+        PangoCairo.show_layout(cr, layout)
+
+        return False
